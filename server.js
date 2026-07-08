@@ -662,6 +662,9 @@ app.get('/api/customer/workers', async (req, res) => {
     res.json(merged);
   } catch (err) {
     res.status(500).json({ error: err.message });
+  }
+});
+
 // Get customer profile
 app.get('/api/customer/profile', async (req, res) => {
   try {
@@ -901,3 +904,5 @@ app.post('/api/bookings/:id/chats', async (req, res) => {
 app.listen(PORT, () => {
   console.log(`GigDial Admin API Server running at http://localhost:${PORT}`);
 });
+
+
