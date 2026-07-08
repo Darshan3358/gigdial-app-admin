@@ -662,6 +662,45 @@ app.get('/api/customer/workers', async (req, res) => {
     res.json(merged);
   } catch (err) {
     res.status(500).json({ error: err.message });
+// Get customer profile
+app.get('/api/customer/profile', async (req, res) => {
+  try {
+    const { phone } = req.query;
+    if (!phone) return res.status(400).json({ error: "phone query parameter is required" });
+    const user = await db.collection('users').findOne({ phone });
+    if (!user) {
+      return res.status(404).json({ error: "Profile not found" });
+    }
+    res.json(user);
+  } catch (err) {
+    res.status(500).json({ error: err.message });
+  }
+});
+
+// Create/Update customer profile
+app.post('/api/customer/profile', async (req, res) => {
+  try {
+    const { phone, name, email, avatar } = req.body;
+    if (!phone) return res.status(400).json({ error: "phone is required" });
+
+    const updateFields = {
+      name,
+      email,
+      phone,
+      avatar,
+      role: 'customer',
+      updatedAt: new Date()
+    };
+
+    await db.collection('users').updateOne(
+      { phone },
+      { $set: updateFields },
+      { upsert: true }
+    );
+
+    res.json({ success: true });
+  } catch (err) {
+    res.status(500).json({ error: err.message });
   }
 });
 
