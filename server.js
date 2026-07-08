@@ -596,6 +596,269 @@ app.post('/api/settings', async (req, res) => {
   }
 });
 
+// -----------------------------------------------------------------------------
+// CUSTOMER ENDPOINTS
+// -----------------------------------------------------------------------------
+
+// Get active/approved workers
+app.get('/api/customer/workers', async (req, res) => {
+  try {
+    const userQuery = {
+      $and: [
+        { $or: [{ role: 'worker' }, { isProvider: true }] }
+      ]
+    };
+    const dbUsers = await db.collection('users').find(userQuery).toArray();
+    const dbWorkers = await db.collection('workers').find().toArray();
+
+    const seenIds = new Set();
+    const merged = [];
+
+    for (const u of dbUsers) {
+      seenIds.add(u._id.toString());
+      merged.push({
+        id: u._id.toString(),
+        name: u.name || 'Service Provider',
+        profession: u.category || u.profession || 'Service Provider',
+        role: u.category || u.profession || 'Service Provider',
+        rating: u.rating || 4.9,
+        reviewsCount: u.reviewsCount || 12,
+        reviews: u.reviewsCount || 12,
+        experience: u.experience ? `${u.experience} Years Experience` : '6 Years Experience',
+        location: u.city || 'Ahmedabad, India',
+        availability: u.isApproved ? 'Available Now' : 'Offline',
+        about: u.about || 'Professional GigDial service provider.',
+        skills: u.skills || ['General Service'],
+        phone: u.phone || '',
+        whatsapp: u.phone || '',
+        starDistribution: u.starDistribution || { five: 90, four: 8, three: 2, two: 0, one: 0 }
+      });
+    }
+
+    for (const w of dbWorkers) {
+      const idStr = w._id.toString();
+      const uidStr = w.uid || '';
+      if (!seenIds.has(idStr) && !seenIds.has(uidStr)) {
+        merged.push({
+          id: w._id.toString(),
+          name: w.name || 'Service Provider',
+          profession: w.profession || 'Service Provider',
+          role: w.profession || 'Service Provider',
+          rating: w.rating || 4.8,
+          reviewsCount: w.reviewsCount || 8,
+          reviews: w.reviewsCount || 8,
+          experience: w.experience || '4 Years Experience',
+          location: w.city || 'Ahmedabad, India',
+          availability: w.isApproved ? 'Available Now' : 'Offline',
+          about: w.about || 'Professional GigDial service provider.',
+          skills: w.skills || ['General Service'],
+          phone: w.phone || '',
+          whatsapp: w.phone || '',
+          starDistribution: w.starDistribution || { five: 100, four: 0, three: 0, two: 0, one: 0 }
+        });
+      }
+    }
+
+    res.json(merged);
+  } catch (err) {
+    res.status(500).json({ error: err.message });
+  }
+});
+
+// Get bookings for a customer
+app.get('/api/customer/bookings', async (req, res) => {
+  try {
+    const { customerName } = req.query;
+    if (!customerName) return res.status(400).json({ error: "customerName query required" });
+    const query = { customerName };
+    const list = await db.collection('bookings').find(query).sort({ createdAt: -1 }).toArray();
+    res.json(list);
+  } catch (err) {
+    res.status(500).json({ error: err.message });
+  }
+});
+
+// Create a new booking
+app.post('/api/customer/bookings', async (req, res) => {
+  try {
+    const booking = req.body;
+    booking.createdAt = Date.now();
+    
+    // Add default status and default worker image if none exists
+    booking.status = booking.status || 'Pending';
+    
+    const result = await db.collection('bookings').insertOne(booking);
+    res.json({ success: true, id: result.insertedId });
+  } catch (err) {
+    res.status(500).json({ error: err.message });
+  }
+});
+
+// Rate/Review a booking
+app.post('/api/customer/bookings/:id/rate', async (req, res) => {
+  try {
+    const { id } = req.params;
+    const { rating, review } = req.body;
+    await db.collection('bookings').updateOne(
+      { _id: new ObjectId(id) },
+      { $set: { rating, review } }
+    );
+    res.json({ success: true });
+  } catch (err) {
+    res.status(500).json({ error: err.message });
+  }
+});
+
+
+// -----------------------------------------------------------------------------
+// WORKER ENDPOINTS
+// -----------------------------------------------------------------------------
+
+// Get worker profile matching phone/email
+app.get('/api/worker/profile', async (req, res) => {
+  try {
+    const { phone } = req.query;
+    if (!phone) return res.status(400).json({ error: "phone query parameter is required" });
+    const user = await db.collection('users').findOne({ phone });
+    if (!user) {
+      return res.status(404).json({ error: "Profile not found" });
+    }
+    res.json(user);
+  } catch (err) {
+    res.status(500).json({ error: err.message });
+  }
+});
+
+// Create/Update worker profile
+app.post('/api/worker/profile', async (req, res) => {
+  try {
+    const { phone, name, email, category, experience, location, customSkillsInput, description } = req.body;
+    if (!phone) return res.status(400).json({ error: "phone is required" });
+    
+    const updateFields = {
+      name,
+      email,
+      phone,
+      category,
+      experience,
+      location,
+      customSkillsInput,
+      description,
+      role: 'worker',
+      isProvider: true,
+      updatedAt: new Date()
+    };
+
+    await db.collection('users').updateOne(
+      { phone },
+      { $set: updateFields },
+      { upsert: true }
+    );
+
+    // Also sync/create in workers collection
+    await db.collection('workers').updateOne(
+      { phone },
+      { $set: {
+        name,
+        email,
+        phone,
+        profession: category,
+        experience: `${experience} Years Experience`,
+        city: location,
+        about: description,
+        updatedAt: new Date()
+      }},
+      { upsert: true }
+    );
+
+    res.json({ success: true });
+  } catch (err) {
+    res.status(500).json({ error: err.message });
+  }
+});
+
+// Get bookings/leads for a worker
+app.get('/api/worker/bookings', async (req, res) => {
+  try {
+    const { workerName } = req.query;
+    if (!workerName) return res.status(400).json({ error: "workerName parameter required" });
+    
+    // Return either bookings assigned to this worker OR any Pending booking (leads)
+    const list = await db.collection('bookings').find({
+      $or: [
+        { workerName },
+        { status: 'Pending' }
+      ]
+    }).sort({ createdAt: -1 }).toArray();
+
+    res.json(list);
+  } catch (err) {
+    res.status(500).json({ error: err.message });
+  }
+});
+
+// Update booking status by worker
+app.post('/api/worker/bookings/:id/status', async (req, res) => {
+  try {
+    const { id } = req.params;
+    const { status, workerName } = req.body;
+    
+    const updateDoc = { status, updatedAt: Date.now() };
+    if (workerName) {
+      updateDoc.workerName = workerName;
+    }
+
+    await db.collection('bookings').updateOne(
+      { _id: new ObjectId(id) },
+      { $set: updateDoc }
+    );
+
+    res.json({ success: true });
+  } catch (err) {
+    res.status(500).json({ error: err.message });
+  }
+});
+
+
+// -----------------------------------------------------------------------------
+// CHAT ENDPOINTS
+// -----------------------------------------------------------------------------
+
+// Get chat messages
+app.get('/api/bookings/:id/chats', async (req, res) => {
+  try {
+    const { id } = req.params;
+    const chats = await db.collection('chats').find({ bookingId: id }).sort({ timestamp: 1 }).toArray();
+    res.json(chats);
+  } catch (err) {
+    res.status(500).json({ error: err.message });
+  }
+});
+
+// Post a chat message
+app.post('/api/bookings/:id/chats', async (req, res) => {
+  try {
+    const { id } = req.params;
+    const { senderRole, text } = req.body;
+    
+    const dateObj = new Date();
+    const timeStr = dateObj.toLocaleTimeString([], { hour: '2-digit', minute: '2-digit' });
+
+    const message = {
+      bookingId: id,
+      senderRole,
+      text,
+      timestamp: timeStr,
+      createdAt: Date.now()
+    };
+
+    await db.collection('chats').insertOne(message);
+    res.json({ success: true, message });
+  } catch (err) {
+    res.status(500).json({ error: err.message });
+  }
+});
+
 app.listen(PORT, () => {
   console.log(`GigDial Admin API Server running at http://localhost:${PORT}`);
 });
