@@ -1,0 +1,17 @@
+{
+  "name": "gigdial-admin-server",
+  "version": "1.0.0",
+  "description": "GigDial Admin API Server",
+  "main": "server.js",
+  "scripts": {
+    "start": "node server.js"
+  },
+  "engines": {
+    "node": ">=18.0.0"
+  },
+  "dependencies": {
+    "cors": "^2.8.6",
+    "express": "^5.2.1",
+    "mongodb": "^7.4.0"
+  }
+}
