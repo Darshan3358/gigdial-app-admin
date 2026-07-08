@@ -907,28 +907,21 @@ app.post('/api/bookings/:id/chats', async (req, res) => {
 
 app.post('/api/auth/register', async (req, res) => {
   try {
-    const { name, email, phone, password, role } = req.body;
-    if (!phone || !name || !email || !role || !password) {
+    const { name, email, phone, role } = req.body;
+    if (!phone || !name || !email || !role) {
       return res.status(400).json({ error: "All fields are required" });
     }
 
-    // Check if user already exists with email or phone
-    const existingUser = await db.collection('users').findOne({
-      $or: [
-        { email: email.trim().toLowerCase() },
-        { phone: phone.trim() }
-      ]
-    });
-
+    // Check if phone already exists
+    const existingUser = await db.collection('users').findOne({ phone });
     if (existingUser) {
-      return res.status(400).json({ error: "User with this email or phone already exists" });
+      return res.status(400).json({ error: "User with this phone number already exists" });
     }
 
     const newUser = {
-      name: name.trim(),
-      email: email.trim().toLowerCase(),
-      phone: phone.trim(),
-      password, // Plain text for simplicity, matching prototype environment
+      name,
+      email,
+      phone,
       role,
       isApproved: role === 'worker' ? false : true, // workers require admin approval
       createdAt: new Date(),
@@ -942,9 +935,9 @@ app.post('/api/auth/register', async (req, res) => {
       // Create blank profile in workers collection too
       await db.collection('workers').insertOne({
         uid: id,
-        name: name.trim(),
-        email: email.trim().toLowerCase(),
-        phone: phone.trim(),
+        name,
+        email,
+        phone,
         profession: 'Electrician', // default category
         rating: 5.0,
         reviewsCount: 0,
@@ -965,19 +958,21 @@ app.post('/api/auth/register', async (req, res) => {
 
 app.post('/api/auth/login', async (req, res) => {
   try {
-    const { email, password, role } = req.body;
-    if (!email || !password || !role) {
-      return res.status(400).json({ error: "Email, passcode, and role are required" });
+    const { email, phone, role } = req.body;
+    if ((!email && !phone) || !role) {
+      return res.status(400).json({ error: "Email or phone number and role are required" });
     }
 
-    const user = await db.collection('users').findOne({
-      email: email.trim().toLowerCase(),
-      password,
-      role
-    });
+    const query = { role };
+    if (email) {
+      query.email = email.trim();
+    } else if (phone) {
+      query.phone = phone.trim();
+    }
 
+    const user = await db.collection('users').findOne(query);
     if (!user) {
-      return res.status(404).json({ error: `Incorrect email or passcode for ${role}` });
+      return res.status(404).json({ error: `No registered ${role} found with this account` });
     }
 
     res.json({ success: true, user: { ...user, id: user._id.toString() } });
