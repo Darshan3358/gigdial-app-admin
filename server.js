@@ -901,6 +901,79 @@ app.post('/api/bookings/:id/chats', async (req, res) => {
   }
 });
 
+// -----------------------------------------------------------------------------
+// AUTH ENDPOINTS
+// -----------------------------------------------------------------------------
+
+app.post('/api/auth/register', async (req, res) => {
+  try {
+    const { name, email, phone, role } = req.body;
+    if (!phone || !name || !email || !role) {
+      return res.status(400).json({ error: "All fields are required" });
+    }
+
+    // Check if phone already exists
+    const existingUser = await db.collection('users').findOne({ phone });
+    if (existingUser) {
+      return res.status(400).json({ error: "User with this phone number already exists" });
+    }
+
+    const newUser = {
+      name,
+      email,
+      phone,
+      role,
+      isApproved: role === 'worker' ? false : true, // workers require admin approval
+      createdAt: new Date(),
+      updatedAt: new Date()
+    };
+
+    const result = await db.collection('users').insertOne(newUser);
+    const id = result.insertedId.toString();
+
+    if (role === 'worker') {
+      // Create blank profile in workers collection too
+      await db.collection('workers').insertOne({
+        uid: id,
+        name,
+        email,
+        phone,
+        profession: 'Electrician', // default category
+        rating: 5.0,
+        reviewsCount: 0,
+        experience: '1 Years Experience',
+        city: 'Ahmedabad, India',
+        about: 'Verified professional service provider.',
+        skills: ['General Service'],
+        isApproved: false,
+        createdAt: new Date()
+      });
+    }
+
+    res.json({ success: true, user: { ...newUser, id } });
+  } catch (err) {
+    res.status(500).json({ error: err.message });
+  }
+});
+
+app.post('/api/auth/login', async (req, res) => {
+  try {
+    const { phone, role } = req.body;
+    if (!phone || !role) {
+      return res.status(400).json({ error: "Phone number and role are required" });
+    }
+
+    const user = await db.collection('users').findOne({ phone, role });
+    if (!user) {
+      return res.status(404).json({ error: `No registered ${role} found with this phone number` });
+    }
+
+    res.json({ success: true, user: { ...user, id: user._id.toString() } });
+  } catch (err) {
+    res.status(500).json({ error: err.message });
+  }
+});
+
 app.listen(PORT, () => {
   console.log(`GigDial Admin API Server running at http://localhost:${PORT}`);
 });
