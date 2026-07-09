@@ -950,7 +950,7 @@ app.post('/api/bookings/:id/chats', async (req, res) => {
 
 app.post('/api/auth/register', async (req, res) => {
   try {
-    const { name, email, phone, role } = req.body;
+    const { name, email, phone, role, passcode } = req.body;
     if (!phone || !name || !email || !role) {
       return res.status(400).json({ error: "All fields are required" });
     }
@@ -966,6 +966,7 @@ app.post('/api/auth/register', async (req, res) => {
       email,
       phone,
       role,
+      passcode: passcode,
       isApproved: role === 'worker' ? false : true, // workers require admin approval
       createdAt: new Date(),
       updatedAt: new Date()
@@ -1001,7 +1002,7 @@ app.post('/api/auth/register', async (req, res) => {
 
 app.post('/api/auth/login', async (req, res) => {
   try {
-    const { email, phone, role } = req.body;
+    const { email, phone, role, passcode } = req.body;
     if ((!email && !phone) || !role) {
       return res.status(400).json({ error: "Email or phone number and role are required" });
     }
@@ -1018,6 +1019,11 @@ app.post('/api/auth/login', async (req, res) => {
       return res.status(404).json({ error: `No registered ${role} found with this account` });
     }
 
+    // Verify passcode if set
+    if (user.passcode && passcode && user.passcode !== passcode.trim()) {
+      return res.status(401).json({ error: "Incorrect passcode / password." });
+    }
+
     res.json({ success: true, user: { ...user, id: user._id.toString() } });
   } catch (err) {
     res.status(500).json({ error: err.message });
@@ -1031,7 +1037,7 @@ app.post('/api/auth/login', async (req, res) => {
 // POST /api/auth/register-user
 app.post('/api/auth/register-user', async (req, res) => {
   try {
-    const { uid, name, phone, email } = req.body;
+    const { uid, name, phone, email, passcode } = req.body;
     if (!uid || !name || !phone || !email) {
       return res.status(400).json({ error: "uid, name, phone, and email are required" });
     }
@@ -1047,6 +1053,7 @@ app.post('/api/auth/register-user', async (req, res) => {
       phone,
       email,
       role: 'customer',
+      passcode: passcode || '1234',
       createdAt: new Date()
     };
 
@@ -1060,7 +1067,7 @@ app.post('/api/auth/register-user', async (req, res) => {
 // POST /api/auth/register-worker
 app.post('/api/auth/register-worker', async (req, res) => {
   try {
-    const { uid, name, phone, email, profession, experience } = req.body;
+    const { uid, name, phone, email, profession, experience, passcode } = req.body;
     if (!uid || !name || !phone || !email || !profession) {
       return res.status(400).json({ error: "uid, name, phone, email, and profession are required" });
     }
@@ -1076,6 +1083,7 @@ app.post('/api/auth/register-worker', async (req, res) => {
       phone,
       email,
       role: 'worker',
+      passcode: passcode || '1234',
       createdAt: new Date()
     };
 
