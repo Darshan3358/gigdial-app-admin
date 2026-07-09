@@ -912,10 +912,10 @@ app.post('/api/auth/register', async (req, res) => {
       return res.status(400).json({ error: "All fields are required" });
     }
 
-    // Check if phone already exists
-    const existingUser = await db.collection('users').findOne({ phone });
+    // Check if phone already exists for this role
+    const existingUser = await db.collection('users').findOne({ phone, role });
     if (existingUser) {
-      return res.status(400).json({ error: "User with this phone number already exists" });
+      return res.status(400).json({ error: `User with this phone number is already registered as a ${role}` });
     }
 
     const newUser = {
