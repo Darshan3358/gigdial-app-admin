@@ -1768,6 +1768,73 @@ app.post('/api/auth/change-password', async (req, res) => {
   res.json({ success: true, message: "Password updated successfully" });
 });
 
+// -----------------------------------------------------------------------------
+// DEDICATED ADMIN PAYMENTS & APPROVAL ROUTER
+// -----------------------------------------------------------------------------
+
+// GET /api/payments
+app.get('/api/payments', async (req, res) => {
+  try {
+    const { status } = req.query;
+    const filter = {};
+    if (status) {
+      filter.status = status;
+    }
+    const list = await db.collection('payments').find(filter).sort({ createdAt: -1 }).toArray();
+    res.json(list);
+  } catch (err) {
+    res.status(500).json({ error: err.message });
+  }
+});
+
+// POST /api/payments/:id/approve
+app.post('/api/payments/:id/approve', async (req, res) => {
+  try {
+    const { id } = req.params;
+    if (!ObjectId.isValid(id)) return res.status(400).json({ error: "Invalid payment ID" });
+
+    const payment = await db.collection('payments').findOne({ _id: new ObjectId(id) });
+    if (!payment) return res.status(404).json({ error: "Payment record not found" });
+
+    // 1. Mark payment as completed
+    await db.collection('payments').updateOne(
+      { _id: new ObjectId(id) },
+      { $set: { status: 'completed', completedAt: new Date() } }
+    );
+
+    // 2. Update the worker subscription in 'workers' collection
+    await db.collection('workers').updateOne(
+      { uid: payment.workerUid },
+      { $set: { 
+        subscription: {
+          plan: payment.plan || 'pro',
+          status: 'active',
+          expiryDate: new Date(Date.now() + 30 * 24 * 60 * 60 * 1000)
+        },
+        updatedAt: new Date()
+      } }
+    );
+
+    // 3. Update the worker subscription in 'users' collection (for auth session loading)
+    await db.collection('users').updateOne(
+      { uid: payment.workerUid },
+      { $set: { 
+        subscription: {
+          isActive: true,
+          planName: payment.plan === 'pro' ? 'GigDial Pro' : (payment.plan || 'Pro Plan'),
+          price: '₹499 / Month',
+          remainingDays: 30
+        },
+        updatedAt: new Date()
+      } }
+    );
+
+    res.json({ success: true, message: "Payment approved and worker subscription activated successfully." });
+  } catch (err) {
+    res.status(500).json({ error: err.message });
+  }
+});
+
 app.listen(PORT, () => {
   console.log(`GigDial Admin API Server running at http://localhost:${PORT}`);
 });
