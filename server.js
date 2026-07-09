@@ -981,6 +981,298 @@ app.post('/api/auth/login', async (req, res) => {
   }
 });
 
+// -----------------------------------------------------------------------------
+// DEDICATED AUTH & USER/WORKER ROUTER (MATCHING FLUTTER BACKEND SCHEMAS)
+// -----------------------------------------------------------------------------
+
+// POST /api/auth/register-user
+app.post('/api/auth/register-user', async (req, res) => {
+  try {
+    const { uid, name, phone, email } = req.body;
+    if (!uid || !name || !phone || !email) {
+      return res.status(400).json({ error: "uid, name, phone, and email are required" });
+    }
+
+    const existingUser = await db.collection('users').findOne({ $or: [{ uid }, { email }, { phone }] });
+    if (existingUser) {
+      return res.status(400).json({ error: "User already exists with this uid, email, or phone" });
+    }
+
+    const newUser = {
+      uid,
+      name,
+      phone,
+      email,
+      role: 'customer',
+      createdAt: new Date()
+    };
+
+    await db.collection('users').insertOne(newUser);
+    res.json({ success: true, user: newUser });
+  } catch (err) {
+    res.status(500).json({ error: err.message });
+  }
+});
+
+// POST /api/auth/register-worker
+app.post('/api/auth/register-worker', async (req, res) => {
+  try {
+    const { uid, name, phone, email, profession, experience } = req.body;
+    if (!uid || !name || !phone || !email || !profession) {
+      return res.status(400).json({ error: "uid, name, phone, email, and profession are required" });
+    }
+
+    const existingUser = await db.collection('users').findOne({ $or: [{ uid }, { email }, { phone }] });
+    if (existingUser) {
+      return res.status(400).json({ error: "User already exists with this uid, email, or phone" });
+    }
+
+    const newUser = {
+      uid,
+      name,
+      phone,
+      email,
+      role: 'worker',
+      createdAt: new Date()
+    };
+
+    const newWorker = {
+      uid,
+      name,
+      phone,
+      email,
+      profession,
+      experience: Number(experience) || 0,
+      rating: 5.0,
+      isActive: true,
+      subscription: {
+        plan: 'none',
+        status: 'inactive'
+      },
+      createdAt: new Date()
+    };
+
+    await db.collection('users').insertOne(newUser);
+    await db.collection('workers').insertOne(newWorker);
+    res.json({ success: true, worker: newWorker });
+  } catch (err) {
+    res.status(500).json({ error: err.message });
+  }
+});
+
+// GET /api/auth/user/:uid
+app.get('/api/auth/user/:uid', async (req, res) => {
+  try {
+    const { uid } = req.params;
+    const user = await db.collection('users').findOne({ uid });
+    if (!user) return res.status(404).json({ error: "User not found" });
+    res.json(user);
+  } catch (err) {
+    res.status(500).json({ error: err.message });
+  }
+});
+
+// GET /api/auth/worker/:uid
+app.get('/api/auth/worker/:uid', async (req, res) => {
+  try {
+    const { uid } = req.params;
+    const worker = await db.collection('workers').findOne({ uid });
+    if (!worker) return res.status(404).json({ error: "Worker not found" });
+    res.json(worker);
+  } catch (err) {
+    res.status(500).json({ error: err.message });
+  }
+});
+
+// PUT /api/auth/update-user/:uid
+app.put('/api/auth/update-user/:uid', async (req, res) => {
+  try {
+    const { uid } = req.params;
+    const { name, phone, email } = req.body;
+    
+    const updateFields = {};
+    if (name) updateFields.name = name;
+    if (phone) updateFields.phone = phone;
+    if (email) updateFields.email = email;
+
+    const result = await db.collection('users').findOneAndUpdate(
+      { uid },
+      { $set: updateFields },
+      { returnDocument: 'after' }
+    );
+    if (!result) return res.status(404).json({ error: "User not found" });
+    res.json({ success: true, user: result });
+  } catch (err) {
+    res.status(500).json({ error: err.message });
+  }
+});
+
+// PUT /api/auth/update-worker/:uid
+app.put('/api/auth/update-worker/:uid', async (req, res) => {
+  try {
+    const { uid } = req.params;
+    const { name, phone, email, profession, experience } = req.body;
+
+    const updateFields = {};
+    if (name) updateFields.name = name;
+    if (phone) updateFields.phone = phone;
+    if (email) updateFields.email = email;
+    if (profession) updateFields.profession = profession;
+    if (experience !== undefined) updateFields.experience = Number(experience);
+
+    await db.collection('users').updateOne(
+      { uid },
+      { $set: { name, phone, email } }
+    );
+
+    const resultWorker = await db.collection('workers').findOneAndUpdate(
+      { uid },
+      { $set: updateFields },
+      { returnDocument: 'after' }
+    );
+
+    if (!resultWorker) return res.status(404).json({ error: "Worker not found" });
+    res.json({ success: true, worker: resultWorker });
+  } catch (err) {
+    res.status(500).json({ error: err.message });
+  }
+});
+
+// GET /api/auth/workers
+app.get('/api/auth/workers', async (req, res) => {
+  try {
+    const workers = await db.collection('workers').find({}).toArray();
+    res.json(workers);
+  } catch (err) {
+    res.status(500).json({ error: err.message });
+  }
+});
+
+// GET /api/auth/users
+app.get('/api/auth/users', async (req, res) => {
+  try {
+    const users = await db.collection('users').find({ role: 'customer' }).toArray();
+    res.json(users);
+  } catch (err) {
+    res.status(500).json({ error: err.message });
+  }
+});
+
+// -----------------------------------------------------------------------------
+// DEDICATED BOOKING ROUTER (MATCHING FLUTTER BACKEND SCHEMAS)
+// -----------------------------------------------------------------------------
+
+// POST /api/bookings/create
+app.post('/api/bookings/create', async (req, res) => {
+  try {
+    const { title, description, address, schedule, customerId, price } = req.body;
+    if (!title || !description || !address || !schedule || !customerId || !price) {
+      return res.status(400).json({ error: "All fields are required" });
+    }
+
+    const newBooking = {
+      title,
+      description,
+      address,
+      schedule,
+      customerId,
+      workerId: null,
+      price: Number(price),
+      status: 'pending',
+      createdAt: new Date()
+    };
+
+    const result = await db.collection('bookings').insertOne(newBooking);
+    res.json({ success: true, booking: { ...newBooking, id: result.insertedId.toString() } });
+  } catch (err) {
+    res.status(500).json({ error: err.message });
+  }
+});
+
+// GET /api/bookings/pending
+app.get('/api/bookings/pending', async (req, res) => {
+  try {
+    const bookings = await db.collection('bookings').find({ status: 'pending' }).sort({ createdAt: -1 }).toArray();
+    res.json(bookings);
+  } catch (err) {
+    res.status(500).json({ error: err.message });
+  }
+});
+
+// GET /api/bookings/active/:workerId
+app.get('/api/bookings/active/:workerId', async (req, res) => {
+  try {
+    const { workerId } = req.params;
+    const bookings = await db.collection('bookings').find({
+      workerId,
+      status: { $in: ['accepted', 'on_the_way', 'in_progress', 'completed'] }
+    }).toArray();
+    res.json(bookings);
+  } catch (err) {
+    res.status(500).json({ error: err.message });
+  }
+});
+
+// GET /api/bookings/user/:customerId
+app.get('/api/bookings/user/:customerId', async (req, res) => {
+  try {
+    const { customerId } = req.params;
+    const bookings = await db.collection('bookings').find({ customerId }).toArray();
+    res.json(bookings);
+  } catch (err) {
+    res.status(500).json({ error: err.message });
+  }
+});
+
+// PUT /api/bookings/accept/:id
+app.put('/api/bookings/accept/:id', async (req, res) => {
+  try {
+    const { id } = req.params;
+    const { workerId } = req.body;
+    if (!workerId) return res.status(400).json({ error: "workerId is required" });
+
+    const booking = await db.collection('bookings').findOne({ _id: new ObjectId(id) });
+    if (!booking) return res.status(404).json({ error: "Booking not found" });
+
+    // Check if worker exists to get their name
+    const worker = await db.collection('workers').findOne({ uid: workerId });
+    const workerName = worker ? worker.name : 'Service Professional';
+
+    await db.collection('bookings').updateOne(
+      { _id: new ObjectId(id) },
+      { $set: { workerId, workerName, status: 'accepted' } }
+    );
+
+    res.json({ success: true });
+  } catch (err) {
+    res.status(500).json({ error: err.message });
+  }
+});
+
+// PUT /api/bookings/update-status/:id
+app.put('/api/bookings/update-status/:id', async (req, res) => {
+  try {
+    const { id } = req.params;
+    const { status } = req.body;
+    const validStatuses = ['pending', 'accepted', 'on_the_way', 'in_progress', 'completed', 'cancelled'];
+    if (!validStatuses.includes(status)) {
+      return res.status(400).json({ error: "Invalid status value" });
+    }
+
+    const booking = await db.collection('bookings').findOne({ _id: new ObjectId(id) });
+    if (!booking) return res.status(404).json({ error: "Booking not found" });
+
+    await db.collection('bookings').updateOne(
+      { _id: new ObjectId(id) },
+      { $set: { status } }
+    );
+
+    res.json({ success: true });
+  } catch (err) {
+    res.status(500).json({ error: err.message });
+  }
+});
+
 app.listen(PORT, () => {
   console.log(`GigDial Admin API Server running at http://localhost:${PORT}`);
 });
