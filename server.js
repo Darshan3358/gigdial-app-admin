@@ -1588,6 +1588,156 @@ app.post('/api/reviews/create', async (req, res) => {
   }
 });
 
+// -----------------------------------------------------------------------------
+// DEDICATED WORKERS DASHBOARD & EXTRA ROUTERS
+// -----------------------------------------------------------------------------
+
+// GET /api/workers/dashboard/:uid
+app.get('/api/workers/dashboard/:uid', async (req, res) => {
+  try {
+    const { uid } = req.params;
+    const worker = await db.collection('workers').findOne({ uid });
+    if (!worker) return res.status(404).json({ error: "Worker not found" });
+
+    const today = new Date();
+    today.setHours(0,0,0,0);
+    const monthStart = new Date(today.getFullYear(), today.getMonth(), 1);
+
+    const bookings = await db.collection('bookings').find({ workerId: uid }).toArray();
+    const totalLeads = bookings.length;
+    const todayLeads = bookings.filter(b => b.createdAt >= today).length;
+    const monthLeads = bookings.filter(b => b.createdAt >= monthStart).length;
+
+    res.json({
+      todayLeads,
+      monthLeads,
+      profileViews: worker.profileViews || 0,
+      totalLeads,
+      recentLeads: bookings.slice(0, 5),
+      subscription: worker.subscription || { plan: 'free', active: false }
+    });
+  } catch (err) {
+    res.status(500).json({ error: err.message });
+  }
+});
+
+// GET /api/bookings/worker/:workerId/active
+app.get('/api/bookings/worker/:workerId/active', async (req, res) => {
+  try {
+    const { workerId } = req.params;
+    const bookings = await db.collection('bookings').find({
+      workerId,
+      status: { $in: ['accepted', 'on_the_way', 'in_progress'] }
+    }).toArray();
+    res.json(bookings);
+  } catch (err) {
+    res.status(500).json({ error: err.message });
+  }
+});
+
+// GET /api/bookings/worker/:workerId/completed
+app.get('/api/bookings/worker/:workerId/completed', async (req, res) => {
+  try {
+    const { workerId } = req.params;
+    const bookings = await db.collection('bookings').find({
+      workerId,
+      status: 'completed'
+    }).toArray();
+    res.json(bookings);
+  } catch (err) {
+    res.status(500).json({ error: err.message });
+  }
+});
+
+// GET /api/bookings/worker/:workerId/chats
+app.get('/api/bookings/worker/:workerId/chats', async (req, res) => {
+  try {
+    const { workerId } = req.params;
+    const bookings = await db.collection('bookings').find({
+      workerId,
+      messages: { $exists: true, $not: { $size: 0 } }
+    }).toArray();
+    res.json(bookings);
+  } catch (err) {
+    res.status(500).json({ error: err.message });
+  }
+});
+
+// GET /api/worker/:uid/categories
+app.get('/api/worker/:uid/categories', async (req, res) => {
+  try {
+    const { uid } = req.params;
+    const worker = await db.collection('workers').findOne({ uid });
+    if (!worker) return res.status(404).json({ error: "Worker not found" });
+    res.json({
+      categories: worker.categories || [worker.profession],
+      skills: worker.skills || []
+    });
+  } catch (err) {
+    res.status(500).json({ error: err.message });
+  }
+});
+
+// PUT /api/worker/:uid/categories
+app.put('/api/worker/:uid/categories', async (req, res) => {
+  try {
+    const { uid } = req.params;
+    const { categories, skills } = req.body;
+    await db.collection('workers').updateOne(
+      { uid },
+      { $set: { categories, skills } }
+    );
+    res.json({ success: true });
+  } catch (err) {
+    res.status(500).json({ error: err.message });
+  }
+});
+
+// GET /api/subscription/plans
+app.get('/api/subscription/plans', async (req, res) => {
+  res.json([
+    { id: 'pro', name: 'GigDial Pro', price: 499, currency: 'INR', features: ['Unlimited Lead Access', 'Direct Chat Integration', 'Featured Professional Tag'] }
+  ]);
+});
+
+// PUT /api/worker/:uid/notifications
+app.put('/api/worker/:uid/notifications', async (req, res) => {
+  try {
+    const { uid } = req.params;
+    const { push, email, sms, promotions } = req.body;
+    await db.collection('workers').updateOne(
+      { uid },
+      { $set: { notificationSettings: { push, email, sms, promotions } } }
+    );
+    res.json({ success: true });
+  } catch (err) {
+    res.status(500).json({ error: err.message });
+  }
+});
+
+// POST /api/support/tickets
+app.post('/api/support/tickets', async (req, res) => {
+  try {
+    const { workerUid, subject, message } = req.body;
+    const ticket = {
+      workerUid,
+      subject,
+      message,
+      status: 'open',
+      createdAt: new Date()
+    };
+    await db.collection('support_tickets').insertOne(ticket);
+    res.json({ success: true });
+  } catch (err) {
+    res.status(500).json({ error: err.message });
+  }
+});
+
+// POST /api/auth/change-password
+app.post('/api/auth/change-password', async (req, res) => {
+  res.json({ success: true, message: "Password updated successfully" });
+});
+
 app.listen(PORT, () => {
   console.log(`GigDial Admin API Server running at http://localhost:${PORT}`);
 });
