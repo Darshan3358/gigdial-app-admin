@@ -865,15 +865,26 @@ app.post('/api/worker/subscription', async (req, res) => {
 // Get bookings/leads for a worker
 app.get('/api/worker/bookings', async (req, res) => {
   try {
-    const { workerName } = req.query;
-    if (!workerName) return res.status(400).json({ error: "workerName parameter required" });
+    const { workerName, workerId } = req.query;
     
-    // Return either bookings assigned to this worker OR any Pending booking (leads)
+    // We construct an OR list. We match:
+    // 1. Any booking with status 'pending' or 'Pending' (these are open leads)
+    // 2. Any booking assigned to this worker specifically by workerId
+    // 3. Any booking assigned to this worker specifically by workerName (legacy)
+    const orQueries = [
+      { status: 'pending' },
+      { status: 'Pending' }
+    ];
+
+    if (workerId && workerId.trim().length > 0) {
+      orQueries.push({ workerId: workerId.trim() });
+    }
+    if (workerName && workerName.trim().length > 0) {
+      orQueries.push({ workerName: workerName.trim() });
+    }
+
     const list = await db.collection('bookings').find({
-      $or: [
-        { workerName },
-        { status: 'Pending' }
-      ]
+      $or: orQueries
     }).sort({ createdAt: -1 }).toArray();
 
     res.json(list);
