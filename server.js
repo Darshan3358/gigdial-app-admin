@@ -832,6 +832,36 @@ app.post('/api/worker/profile', async (req, res) => {
   }
 });
 
+// Update worker subscription
+app.post('/api/worker/subscription', async (req, res) => {
+  try {
+    const { phone, subscription } = req.body;
+    if (!phone || !subscription) {
+      return res.status(400).json({ error: "phone and subscription are required" });
+    }
+
+    await db.collection('users').updateOne(
+      { phone },
+      { $set: { subscription, updatedAt: new Date() } }
+    );
+
+    await db.collection('workers').updateOne(
+      { phone },
+      { $set: { 
+        subscription: {
+          plan: subscription.planName,
+          status: subscription.isActive ? 'active' : 'inactive'
+        }, 
+        updatedAt: new Date() 
+      } }
+    );
+
+    res.json({ success: true });
+  } catch (err) {
+    res.status(500).json({ error: err.message });
+  }
+});
+
 // Get bookings/leads for a worker
 app.get('/api/worker/bookings', async (req, res) => {
   try {
