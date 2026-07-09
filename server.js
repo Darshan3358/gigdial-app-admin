@@ -1496,6 +1496,11 @@ app.get('/api/workers/:workerId', async (req, res) => {
     }
     const worker = await db.collection('workers').findOne(query);
     if (!worker) return res.status(404).json({ error: "Worker not found" });
+
+    // Increment profile views
+    await db.collection('workers').updateOne(query, { $inc: { profileViews: 1 } });
+    worker.profileViews = (worker.profileViews || 0) + 1;
+
     res.json(worker);
   } catch (err) {
     res.status(500).json({ error: err.message });
@@ -1629,6 +1634,34 @@ app.get('/api/workers/dashboard/:uid', async (req, res) => {
     const worker = await db.collection('workers').findOne({ uid });
     if (!worker) return res.status(404).json({ error: "Worker not found" });
 
+    // Check and lazy-deactivate expired subscription
+    let subscriptionObj = worker.subscription || { plan: 'none', status: 'inactive', active: false };
+    if (subscriptionObj.status === 'active' || subscriptionObj.active) {
+      if (subscriptionObj.expiryDate) {
+        const expiry = new Date(subscriptionObj.expiryDate);
+        if (expiry < new Date()) {
+          subscriptionObj = {
+            plan: 'none',
+            status: 'inactive',
+            active: false,
+            expiryDate: subscriptionObj.expiryDate
+          };
+          await db.collection('workers').updateOne(
+            { uid },
+            { $set: { subscription: subscriptionObj, updatedAt: new Date() } }
+          );
+          await db.collection('users').updateOne(
+            { uid },
+            { $set: { 
+              'subscription.isActive': false, 
+              'subscription.remainingDays': 0,
+              updatedAt: new Date() 
+            } }
+          );
+        }
+      }
+    }
+
     const today = new Date();
     today.setHours(0,0,0,0);
     const monthStart = new Date(today.getFullYear(), today.getMonth(), 1);
@@ -1644,7 +1677,7 @@ app.get('/api/workers/dashboard/:uid', async (req, res) => {
       profileViews: worker.profileViews || 0,
       totalLeads,
       recentLeads: bookings.slice(0, 5),
-      subscription: worker.subscription || { plan: 'free', active: false }
+      subscription: subscriptionObj
     });
   } catch (err) {
     res.status(500).json({ error: err.message });
