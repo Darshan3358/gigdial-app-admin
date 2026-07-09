@@ -1273,6 +1273,104 @@ app.put('/api/bookings/update-status/:id', async (req, res) => {
   }
 });
 
+// -----------------------------------------------------------------------------
+// DEDICATED PAYMENTS ROUTER
+// -----------------------------------------------------------------------------
+
+// POST /api/payments/create
+app.post('/api/payments/create', async (req, res) => {
+  try {
+    const { workerUid, plan, amount, method } = req.body;
+    if (!workerUid || !plan || !amount || !method) {
+      return res.status(400).json({ error: "workerUid, plan, amount, and method are required" });
+    }
+
+    const newPayment = {
+      workerUid,
+      plan,
+      amount: Number(amount),
+      method,
+      status: 'pending',
+      createdAt: new Date()
+    };
+
+    const result = await db.collection('payments').insertOne(newPayment);
+    res.json({ success: true, payment: { ...newPayment, id: result.insertedId.toString() } });
+  } catch (err) {
+    res.status(500).json({ error: err.message });
+  }
+});
+
+// GET /api/payments/worker/:workerUid
+app.get('/api/payments/worker/:workerUid', async (req, res) => {
+  try {
+    const { workerUid } = req.params;
+    const history = await db.collection('payments').find({ workerUid }).sort({ createdAt: -1 }).toArray();
+    res.json(history);
+  } catch (err) {
+    res.status(500).json({ error: err.message });
+  }
+});
+
+// -----------------------------------------------------------------------------
+// DEDICATED REQUIREMENTS ROUTER
+// -----------------------------------------------------------------------------
+
+// POST /api/requirements/create
+app.post('/api/requirements/create', async (req, res) => {
+  try {
+    const { customerUid, customerName, customerPhone, customerEmail, category, days, budget, description } = req.body;
+    if (!customerUid || !customerName || !category || !days || !budget || !description) {
+      return res.status(400).json({ error: "Missing required requirements parameters" });
+    }
+
+    const newRequirement = {
+      customerUid,
+      customerName,
+      customerPhone,
+      customerEmail,
+      category,
+      days,
+      budget,
+      description,
+      status: 'new',
+      createdAt: new Date()
+    };
+
+    const result = await db.collection('requirements').insertOne(newRequirement);
+    res.json({ success: true, requirement: { ...newRequirement, id: result.insertedId.toString() } });
+  } catch (err) {
+    res.status(500).json({ error: err.message });
+  }
+});
+
+// GET /api/requirements/all
+app.get('/api/requirements/all', async (req, res) => {
+  try {
+    const list = await db.collection('requirements').find({}).sort({ createdAt: -1 }).toArray();
+    res.json(list);
+  } catch (err) {
+    res.status(500).json({ error: err.message });
+  }
+});
+
+// PUT /api/requirements/update-status/:id
+app.put('/api/requirements/update-status/:id', async (req, res) => {
+  try {
+    const { id } = req.params;
+    const { status } = req.body;
+    if (!status) return res.status(400).json({ error: "Status value is required" });
+
+    await db.collection('requirements').updateOne(
+      { _id: new ObjectId(id) },
+      { $set: { status } }
+    );
+    res.json({ success: true });
+  } catch (err) {
+    res.status(500).json({ error: err.message });
+  }
+});
+
 app.listen(PORT, () => {
   console.log(`GigDial Admin API Server running at http://localhost:${PORT}`);
 });
