@@ -19,6 +19,19 @@ async function connectDB() {
     await client.connect();
     db = client.db();
     console.log("Connected to MongoDB for GigDial Admin API");
+
+    // Seed default services if empty
+    const servicesCount = await db.collection('services').countDocuments();
+    if (servicesCount === 0) {
+      await db.collection('services').insertMany([
+        { name: 'Electrical Wiring', group: 'Home Services', icon: 'flash', isPopular: true, createdAt: new Date() },
+        { name: 'Plumbing Repair', group: 'Home Services', icon: 'water', isPopular: true, createdAt: new Date() },
+        { name: 'Painting & Deco', group: 'Home Services', icon: 'brush', isPopular: true, createdAt: new Date() },
+        { name: 'Cleaning Services', group: 'Home Services', icon: 'trash', isPopular: true, createdAt: new Date() },
+        { name: 'Moving & Logistics', group: 'Logistics', icon: 'bus', isPopular: false, createdAt: new Date() }
+      ]);
+      console.log("Seeded default popular categories into services collection.");
+    }
   } catch (err) {
     console.error("Failed to connect to MongoDB", err);
   }
@@ -1366,6 +1379,210 @@ app.put('/api/requirements/update-status/:id', async (req, res) => {
       { $set: { status } }
     );
     res.json({ success: true });
+  } catch (err) {
+    res.status(500).json({ error: err.message });
+  }
+});
+
+// -----------------------------------------------------------------------------
+// DEDICATED SERVICES ROUTER
+// -----------------------------------------------------------------------------
+
+// GET /api/services/popular
+app.get('/api/services/popular', async (req, res) => {
+  try {
+    const services = await db.collection('services').find({ isPopular: true }).limit(8).toArray();
+    res.json(services);
+  } catch (err) {
+    res.status(500).json({ error: err.message });
+  }
+});
+
+// GET /api/services/all
+app.get('/api/services/all', async (req, res) => {
+  try {
+    const { search } = req.query;
+    const filter = {};
+    if (search) {
+      filter.name = { $regex: search, $options: 'i' };
+    }
+    const services = await db.collection('services').find(filter).sort({ group: 1, name: 1 }).toArray();
+    res.json(services);
+  } catch (err) {
+    res.status(500).json({ error: err.message });
+  }
+});
+
+// -----------------------------------------------------------------------------
+// DEDICATED WORKERS DETAILED LISTS
+// -----------------------------------------------------------------------------
+
+// GET /api/workers/top-rated
+app.get('/api/workers/top-rated', async (req, res) => {
+  try {
+    const limit = Number(req.query.limit) || 5;
+    const workers = await db.collection('workers').find({}).sort({ rating: -1 }).limit(limit).toArray();
+    res.json(workers);
+  } catch (err) {
+    res.status(500).json({ error: err.message });
+  }
+});
+
+// GET /api/workers
+app.get('/api/workers', async (req, res) => {
+  try {
+    const { service, sort } = req.query;
+    const filter = { isActive: true };
+    if (service) {
+      filter.$or = [
+        { profession: { $regex: service, $options: 'i' } },
+        { skills: { $in: [service] } }
+      ];
+    }
+
+    let sortOptions = {};
+    if (sort === 'top') {
+      sortOptions = { rating: -1 };
+    } else if (sort === 'experience') {
+      sortOptions = { experience: -1 };
+    } else {
+      sortOptions = { rating: -1 };
+    }
+
+    const list = await db.collection('workers').find(filter).sort(sortOptions).toArray();
+    res.json(list);
+  } catch (err) {
+    res.status(500).json({ error: err.message });
+  }
+});
+
+// GET /api/workers/:workerId
+app.get('/api/workers/:workerId', async (req, res) => {
+  try {
+    const { workerId } = req.params;
+    let query = { uid: workerId };
+    if (ObjectId.isValid(workerId)) {
+      query = { $or: [{ _id: new ObjectId(workerId) }, { uid: workerId }] };
+    }
+    const worker = await db.collection('workers').findOne(query);
+    if (!worker) return res.status(404).json({ error: "Worker not found" });
+    res.json(worker);
+  } catch (err) {
+    res.status(500).json({ error: err.message });
+  }
+});
+
+// -----------------------------------------------------------------------------
+// ADDITIONAL CUSTOMER DETAILS & REVIEWS
+// -----------------------------------------------------------------------------
+
+// GET /api/bookings/:id
+app.get('/api/bookings/:id', async (req, res) => {
+  try {
+    const { id } = req.params;
+    if (!ObjectId.isValid(id)) return res.status(400).json({ error: "Invalid booking ID" });
+    const booking = await db.collection('bookings').findOne({ _id: new ObjectId(id) });
+    if (!booking) return res.status(404).json({ error: "Booking not found" });
+    res.json(booking);
+  } catch (err) {
+    res.status(500).json({ error: err.message });
+  }
+});
+
+// POST /api/bookings/:id/confirm
+app.post('/api/bookings/:id/confirm', async (req, res) => {
+  try {
+    const { id } = req.params;
+    if (!ObjectId.isValid(id)) return res.status(400).json({ error: "Invalid booking ID" });
+    await db.collection('bookings').updateOne(
+      { _id: new ObjectId(id) },
+      { $set: { status: 'pending', updatedAt: new Date() } }
+    );
+    res.json({ success: true });
+  } catch (err) {
+    res.status(500).json({ error: err.message });
+  }
+});
+
+// GET /api/users/profile
+app.get('/api/users/profile', async (req, res) => {
+  try {
+    const { uid } = req.query;
+    if (!uid) return res.status(400).json({ error: "uid parameter is required" });
+    const user = await db.collection('users').findOne({ uid });
+    if (!user) return res.status(404).json({ error: "User not found" });
+    res.json(user);
+  } catch (err) {
+    res.status(500).json({ error: err.message });
+  }
+});
+
+// PUT /api/users/update-profile
+app.put('/api/users/update-profile', async (req, res) => {
+  try {
+    const { uid, name, phone, email } = req.body;
+    if (!uid) return res.status(400).json({ error: "uid is required" });
+
+    const updateFields = {};
+    if (name) updateFields.name = name;
+    if (phone) updateFields.phone = phone;
+    if (email) updateFields.email = email;
+
+    const result = await db.collection('users').findOneAndUpdate(
+      { uid },
+      { $set: updateFields },
+      { returnDocument: 'after' }
+    );
+    res.json({ success: true, user: result });
+  } catch (err) {
+    res.status(500).json({ error: err.message });
+  }
+});
+
+// GET /api/users/:customerId/saved-workers
+app.get('/api/users/:customerId/saved-workers', async (req, res) => {
+  try {
+    const { customerId } = req.params;
+    const list = await db.collection('saved_workers').find({ customerId }).toArray();
+    res.json(list);
+  } catch (err) {
+    res.status(500).json({ error: err.message });
+  }
+});
+
+// POST /api/reviews/create
+app.post('/api/reviews/create', async (req, res) => {
+  try {
+    const { bookingId, workerId, customerId, rating, feedback } = req.body;
+    if (!bookingId || !workerId || !rating) {
+      return res.status(400).json({ error: "bookingId, workerId, and rating are required" });
+    }
+
+    const newReview = {
+      bookingId,
+      workerId,
+      customerId,
+      rating: Number(rating),
+      feedback,
+      createdAt: new Date()
+    };
+
+    await db.collection('reviews').insertOne(newReview);
+
+    // Compute and update average rating for the worker
+    const pipeline = [
+      { $match: { workerId } },
+      { $group: { _id: null, avgRating: { $avg: '$rating' } } }
+    ];
+    const stats = await db.collection('reviews').aggregate(pipeline).toArray();
+    const newAvg = stats.length > 0 ? stats[0].avgRating : Number(rating);
+
+    await db.collection('workers').updateOne(
+      { uid: workerId },
+      { $set: { rating: newAvg }, $inc: { reviewsCount: 1 } }
+    );
+
+    res.json({ success: true, review: newReview });
   } catch (err) {
     res.status(500).json({ error: err.message });
   }
