@@ -951,8 +951,8 @@ app.post('/api/bookings/:id/chats', async (req, res) => {
 app.post('/api/auth/register', async (req, res) => {
   try {
     const { name, email, phone, role, passcode } = req.body;
-    if (!phone || !name || !email || !role) {
-      return res.status(400).json({ error: "All fields are required" });
+    if (!phone || !name || !email || !role || !passcode) {
+      return res.status(400).json({ error: "All fields including passcode are required" });
     }
 
     // Check if phone already exists for this role
@@ -966,7 +966,7 @@ app.post('/api/auth/register', async (req, res) => {
       email,
       phone,
       role,
-      passcode: passcode,
+      passcode: passcode.trim(),
       isApproved: role === 'worker' ? false : true, // workers require admin approval
       createdAt: new Date(),
       updatedAt: new Date()
@@ -1003,8 +1003,8 @@ app.post('/api/auth/register', async (req, res) => {
 app.post('/api/auth/login', async (req, res) => {
   try {
     const { email, phone, role, passcode } = req.body;
-    if ((!email && !phone) || !role) {
-      return res.status(400).json({ error: "Email or phone number and role are required" });
+    if ((!email && !phone) || !role || !passcode) {
+      return res.status(400).json({ error: "Email/phone, role, and passcode are required" });
     }
 
     const query = { role };
@@ -1019,8 +1019,8 @@ app.post('/api/auth/login', async (req, res) => {
       return res.status(404).json({ error: `No registered ${role} found with this account` });
     }
 
-    // Verify passcode if set
-    if (user.passcode && passcode && user.passcode !== passcode.trim()) {
+    // Verify passcode strictly
+    if (user.passcode !== passcode.trim()) {
       return res.status(401).json({ error: "Incorrect passcode / password." });
     }
 
